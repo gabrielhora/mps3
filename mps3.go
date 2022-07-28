@@ -179,8 +179,11 @@ func (wr Wrapper) readPart(req *http.Request, part *multipart.Part, frm url.Valu
 			return err
 		}
 
-		if f.ftype == "" {
-			f.ftype = mime.TypeByExtension(filepath.Ext(f.name))
+		// if couldn't find type based on file header, try based on extension
+		if f.ftype == "application/octet-stream" {
+			if t := mime.TypeByExtension(filepath.Ext(f.name)); t != "" {
+				f.ftype = t
+			}
 		}
 		frm[name] = append(frm[name], f.key)
 		frm[name+"_name"] = append(frm[name+"_name"], f.name)
@@ -200,14 +203,9 @@ func (wr Wrapper) readPart(req *http.Request, part *multipart.Part, frm url.Valu
 }
 
 func (wr Wrapper) readFile(req *http.Request, part *multipart.Part) (file, error) {
-	keyPrefix := ""
-	if wr.prefixFunc != nil {
-		keyPrefix = wr.prefixFunc(req)
-	}
-
 	f := file{
 		name: filepath.Clean(part.FileName()),
-		key:  keyPrefix + uuid.NewString(),
+		key:  wr.prefixFunc(req) + uuid.NewString(),
 	}
 
 	counter := &bytesCounter{r: part}
@@ -274,8 +272,8 @@ func (bc *bytesCounter) Read(b []byte) (int, error) {
 
 		if errors.Is(err, io.EOF) || len(bc.typeBuf) >= 261 {
 			t, err := filetype.Match(bc.typeBuf)
-			if err != nil {
-				bc.fileType = ""
+			if err != nil || t.MIME.Value == "" {
+				bc.fileType = "application/octet-stream"
 			} else {
 				bc.fileType = t.MIME.Value
 			}
