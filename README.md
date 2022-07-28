@@ -1,5 +1,7 @@
 # Multipart to S3 (mps3)
 
+[![CI](https://github.com/gabrielhora/mps3/actions/workflows/main.yml/badge.svg)](https://github.com/gabrielhora/mps3/actions/workflows/main.yml)
+
 Save uploaded files directly to an AWS S3 (or compatible) bucket.
 
 ## Usage
