@@ -110,7 +110,7 @@ func New(cfg Config) (*Wrapper, error) {
 	}
 	if w.prefixFunc == nil {
 		w.prefixFunc = func(*http.Request) string {
-			return time.Now().UTC().Format("2006/01/02/")
+			return time.Now().UTC().Format("/2006/01/02/")
 		}
 	}
 

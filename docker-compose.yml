@@ -6,7 +6,11 @@ services:
     command: server /data --console-address ":9001"
 
   test:
-    image: golang:1.18
+    build:
+      context: .
+      dockerfile: ci.dockerfile
+    environment:
+      MINIO_HOST: http://minio:9000
     links:
       - minio
-    command: go test ./...
+    command: go test ./... -v

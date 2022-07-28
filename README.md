@@ -5,9 +5,11 @@ Save uploaded files directly to an AWS S3 (or compatible) bucket.
 ## Usage
 
 ```go
+package main
+
 import (
-    "net/http"
     "log"
+    "net/http"
     "github.com/gabrielhora/mps3"
 )
 
@@ -52,7 +54,7 @@ func main() {
         // Function called for uploaded files to determine their S3 key prefix.
         // This is the default implementation.
         PrefixFunc: func(req *http.Request) string {
-            return time.Now().UTC().Format("2006/01/02/")
+            return time.Now().UTC().Format("/2006/01/02/")
         },
     })
     if err != nil {
