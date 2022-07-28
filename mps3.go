@@ -10,7 +10,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -77,7 +76,6 @@ func New(cfg Config) (*Wrapper, error) {
 		Credentials:      credentials.NewStaticCredentials(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
 		Endpoint:         aws.String(cfg.Endpoint),
 		Region:           aws.String(cfg.Region),
-		DisableSSL:       aws.Bool(true),
 		S3ForcePathStyle: aws.Bool(true),
 	}
 	sess, err := session.NewSession(s3Config)
@@ -85,10 +83,10 @@ func New(cfg Config) (*Wrapper, error) {
 		return nil, fmt.Errorf("failed to create S3 session")
 	}
 
+	if cfg.Bucket == "" {
+		return nil, fmt.Errorf("bucket name is required")
+	}
 	if cfg.CreateBucket {
-		if cfg.Bucket == "" {
-			return nil, fmt.Errorf("bucket name is required")
-		}
 		if cfg.BucketACL == "" {
 			cfg.BucketACL = "private"
 		}
@@ -182,7 +180,7 @@ func (wr Wrapper) readPart(req *http.Request, part *multipart.Part, frm url.Valu
 		}
 
 		if f.ftype == "" {
-			f.ftype = mime.TypeByExtension(path.Ext(f.name))
+			f.ftype = mime.TypeByExtension(filepath.Ext(f.name))
 		}
 		frm[name] = append(frm[name], f.key)
 		frm[name+"_name"] = append(frm[name+"_name"], f.name)
@@ -248,8 +246,9 @@ func createBucket(cli *s3.S3, name, acl string) error {
 				return nil
 			}
 		}
+		return fmt.Errorf("failed to create bucket %q: %w", name, err)
 	}
-	return fmt.Errorf("failed to create bucket %q: %w", name, err)
+	return nil
 }
 
 func (wr Wrapper) logAndErr(w http.ResponseWriter, err error) {

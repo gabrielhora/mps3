@@ -1,0 +1,12 @@
+version: "3"
+
+services:
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+
+  test:
+    image: golang:1.18
+    links:
+      - minio
+    command: go test ./...
