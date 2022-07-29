@@ -16,7 +16,7 @@ package main
 import (
     "log"
     "net/http"
-	"strconv"
+    "strconv"
     "github.com/gabrielhora/mps3"
 )
 
@@ -57,6 +57,9 @@ func main() {
 
         // A logger that is used to print out error messages during request handling
         Logger: log.Default(),
+
+        // Size of the upload chunk to S3 (minimum is 5MB)
+        PartSize: 1024 * 1024 * 5,
 
         // Function called for uploaded files to determine their S3 key prefix.
         // This is the default implementation.

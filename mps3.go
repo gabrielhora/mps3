@@ -47,9 +47,14 @@ type Config struct {
 	// FileACL defines ACL string to use for uploaded files (default: "private")
 	FileACL string
 
+	// PartSize defines the size of the chunk that is uploaded to S3, by default is 5 MB,
+	// which is the minimum part size. If a value smaller than the minimum is set, it
+	// will be silently adjusted to the minimum.
+	PartSize int64
+
 	// PrefixFunc defines a function that gets executed to define the S3 key prefix
 	// for each uploaded file. By default it's a function that returns the current date
-	// in the format `YYYY/MM/DD/`
+	// in the format `/YYYY/MM/DD/`
 	PrefixFunc func(*http.Request) string
 
 	// Logger is used to log errors during request processing (default: log.Default())
@@ -95,8 +100,14 @@ func New(cfg Config) (*Wrapper, error) {
 		}
 	}
 
+	if cfg.PartSize < s3manager.MinUploadPartSize {
+		cfg.PartSize = s3manager.MinUploadPartSize
+	}
+
 	w := Wrapper{
-		uploader:   s3manager.NewUploader(sess),
+		uploader: s3manager.NewUploader(sess, func(u *s3manager.Uploader) {
+			u.PartSize = cfg.PartSize
+		}),
 		logger:     cfg.Logger,
 		bucket:     cfg.Bucket,
 		fileACL:    cfg.FileACL,
