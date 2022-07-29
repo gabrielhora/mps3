@@ -2,9 +2,13 @@
 
 [![CI](https://github.com/gabrielhora/mps3/actions/workflows/main.yml/badge.svg)](https://github.com/gabrielhora/mps3/actions/workflows/main.yml)
 
-Save uploaded files directly to an AWS S3 (or compatible) bucket.
+Save uploaded files directly to an S3 compatible API.
 
-## Usage
+## Use case
+
+Your app accepts user uploaded files and you need to process those files later in a pool of workers. Instead of saving uploaded files to the web server's tmp and later uploading to a shared staging area, this middleware allows you to upload directly to said staging area. It doesn't allocate disk space in the web server, it uploads to S3 as it reads from the request body.
+
+## Example
 
 ```go
 package main
@@ -12,6 +16,7 @@ package main
 import (
     "log"
     "net/http"
+	"strconv"
     "github.com/gabrielhora/mps3"
 )
 
@@ -23,10 +28,10 @@ func main() {
         // will process the data, upload the files and return the following information.
 
         // suppose a multipart form was posted with fields "file" and "name".
-        file_key := req.Form.Get("file")  // "<field>" contains the S3 key where this file was saved
-        file_name := req.Form.Get("file_name")  // "<field>_name" is the original uploaded file name
-        file_type := req.Form.Get("file_type")  // "<field>_type" contains the file content type
-        file_size, _ := strconv.ParseInt(req.Form.Get("file_size"), 10, 64) // "<field>_size" is the file size
+        fileKey := req.Form.Get("file")  // "<field>" contains the S3 key where this file was saved
+        fileName := req.Form.Get("file_name")  // "<field>_name" is the original uploaded file name
+        fileType := req.Form.Get("file_type")  // "<field>_type" contains the file content type
+        fileSize, _ := strconv.ParseInt(req.Form.Get("file_size"), 10, 64) // "<field>_size" is the file size
 
         name := req.Form.Get("name")  // other fields are accessed normally
 
@@ -63,7 +68,7 @@ func main() {
         // handle error
     }
 
-    // To use it, just wrap the Handler
+    // To use it, just wrap the Handler (either the whole server or specific routes)
     _ = http.ListenAndServe(":8080", s3.Wrap(server))
 }
 ```

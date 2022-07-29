@@ -209,7 +209,7 @@ func (wr Wrapper) readFile(req *http.Request, part *multipart.Part) (file, error
 	}
 
 	counter := &bytesCounter{r: part}
-	_, err := wr.uploader.Upload(&s3manager.UploadInput{
+	_, err := wr.uploader.UploadWithContext(req.Context(), &s3manager.UploadInput{
 		ACL:    aws.String(wr.fileACL),
 		Key:    aws.String(f.key),
 		Body:   counter,
