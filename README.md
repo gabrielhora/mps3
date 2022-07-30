@@ -14,64 +14,66 @@ Your app accepts user uploaded files and you need to process those files later i
 package main
 
 import (
-    "log"
-    "net/http"
-    "strconv"
-    "github.com/gabrielhora/mps3"
+	"context"
+	"log"
+	"net/http"
+	"strconv"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/gabrielhora/mps3"
 )
 
 func main() {
-    server := http.NewServerMux()
+	server := http.NewServeMux()
 
-    server.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-        // no need to call `req.ParseMultipartForm()` or `req.ParseForm()`, the middleware
-        // will process the data, upload the files and return the following information.
+	server.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// no need to call `req.ParseMultipartForm()` or `req.ParseForm()`, the middleware
+		// will process the data, upload the files and return the following information.
 
-        // suppose a multipart form was posted with fields "file" and "name".
-        fileKey := req.Form.Get("file")  // "<field>" contains the S3 key where this file was saved
-        fileName := req.Form.Get("file_name")  // "<field>_name" is the original uploaded file name
-        fileType := req.Form.Get("file_type")  // "<field>_type" contains the file content type
-        fileSize, _ := strconv.ParseInt(req.Form.Get("file_size"), 10, 64) // "<field>_size" is the file size
+		// suppose a multipart form was posted with fields "file" and "name".
+		fileKey := req.Form.Get("file")                                    // "<field>" contains the S3 key where this file was saved
+		fileName := req.Form.Get("file_name")                              // "<field>_name" is the original uploaded file name
+		fileType := req.Form.Get("file_type")                              // "<field>_type" contains the file content type
+		fileSize, _ := strconv.ParseInt(req.Form.Get("file_size"), 10, 64) // "<field>_size" is the file size
 
-        name := req.Form.Get("name")  // other fields are accessed normally
+		name := req.Form.Get("name") // other fields are accessed normally
 
-        // ...
-    }))
+		// ...
+	}))
+	
+	s3cfg, _ := config.LoadDefaultConfig(context.Background())
 
-    s3, err := mps3.New(mps3.Config{
-        AccessKeyID:     "access_key_id",
-        SecretAccessKey: "secret_access_key",
-        Endpoint:        "api_endpoint",
-        Region:          "region",
-        Bucket:          "bucket",
+	s3, err := mps3.New(mps3.Config{
+		// S3Config you can specify static credentials or custom endpoints if needed.
+		// By default if not specified the middleware you load the default configuration.
+		S3Config: &s3cfg,
 
-        // ACL used for the bucket when CreateBucket is true
-        BucketACL: "private",
+		// ACL used for the bucket when CreateBucket is true
+		BucketACL: "private",
 
-        // If true it will try to create the bucket, if the bucket already exists and
-        // it belongs to the same account ("BucketAlreadyOwnedByYou") it won't do anything
-        CreateBucket: true,
+		// If true it will try to create the bucket, if the bucket already exists and
+		// it belongs to the same account ("BucketAlreadyOwnedByYou") it won't do anything
+		CreateBucket: true,
 
-        // ACL used for uploaded files
-        FileACL: "private",
+		// ACL used for uploaded files
+		FileACL: "private",
 
-        // A logger that is used to print out error messages during request handling
-        Logger: log.Default(),
+		// A logger that is used to print out error messages during request handling
+		Logger: log.Default(),
 
-        // Size of the upload chunk to S3 (minimum is 5MB)
-        PartSize: 1024 * 1024 * 5,
+		// Size of the upload chunk to S3 (minimum is 5MB)
+		PartSize: 1024 * 1024 * 5,
 
-        // Function called for uploaded files to determine their S3 key prefix.
-        // This is the default implementation.
-        PrefixFunc: func(req *http.Request) string {
-            return time.Now().UTC().Format("/2006/01/02/")
-        },
-    })
-    if err != nil {
-        // handle error
-    }
+		// Function called for uploaded files to determine their S3 key prefix.
+		// This is the default implementation.
+		PrefixFunc: func(req *http.Request) string {
+			return time.Now().UTC().Format("/2006/01/02/")
+		},
+	})
+	if err != nil {
+		// handle error
+	}
 
-    // To use it, just wrap the Handler (either the whole server or specific routes)
-    _ = http.ListenAndServe(":8080", s3.Wrap(server))
+	// To use it, just wrap the Handler (either the whole server or specific routes)
+	_ = http.ListenAndServe(":8080", s3.Wrap(server))
 }
 ```
