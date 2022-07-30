@@ -2,6 +2,7 @@ package mps3
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -14,12 +15,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/google/uuid"
 	"github.com/h2non/filetype"
 )
@@ -29,10 +29,26 @@ type Logger interface {
 }
 
 type Config struct {
-	AccessKeyID     string
-	SecretAccessKey string
-	Endpoint        string
-	Region          string
+	// S3Config specifies credentials and endpoint configuration. If not specified the middleware
+	// will load the default configuration with a background context.
+	//
+	// To provide a custom endpoint (required when not using AWS S3 API) you can do something like this
+	// (more info at https://aws.github.io/aws-sdk-go-v2/docs/configuring-sdk/endpoints/):
+	//
+	//	resolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+	//		if service == s3.ServiceID {
+	//			return aws.Endpoint{
+	//				URL:               "http://localhost:9000",
+	//				SigningRegion:     "eu-central-1",
+	//				HostnameImmutable: true,
+	//			}, nil
+	//		}
+	//		// returning EndpointNotFoundError will allow the service to fallback to it's default resolution
+	//		return aws.Endpoint{}, &aws.EndpointNotFoundError{}
+	//	})
+	//
+	//	s3cfg, err := config.LoadDefaultConfig(context.Background(), config.WithEndpointResolverWithOptions(resolver))
+	S3Config *aws.Config
 
 	// Bucket name of the bucket to use to store uploaded files
 	Bucket string
@@ -62,7 +78,7 @@ type Config struct {
 }
 
 type Wrapper struct {
-	uploader   *s3manager.Uploader
+	uploader   *manager.Uploader
 	logger     Logger
 	bucket     string
 	fileACL    string
@@ -77,16 +93,15 @@ type file struct {
 }
 
 func New(cfg Config) (*Wrapper, error) {
-	s3Config := &aws.Config{
-		Credentials:      credentials.NewStaticCredentials(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
-		Endpoint:         aws.String(cfg.Endpoint),
-		Region:           aws.String(cfg.Region),
-		S3ForcePathStyle: aws.Bool(true),
+	if cfg.S3Config == nil {
+		s3cfg, err := config.LoadDefaultConfig(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("failed to create S3 configuration: %w", err)
+		}
+		cfg.S3Config = &s3cfg
 	}
-	sess, err := session.NewSession(s3Config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create S3 session")
-	}
+
+	cli := s3.NewFromConfig(*cfg.S3Config)
 
 	if cfg.Bucket == "" {
 		return nil, fmt.Errorf("bucket name is required")
@@ -95,17 +110,17 @@ func New(cfg Config) (*Wrapper, error) {
 		if cfg.BucketACL == "" {
 			cfg.BucketACL = "private"
 		}
-		if err := createBucket(s3.New(sess), cfg.Bucket, cfg.BucketACL); err != nil {
+		if err := createBucket(cli, cfg.Bucket, cfg.BucketACL); err != nil {
 			return nil, err
 		}
 	}
 
-	if cfg.PartSize < s3manager.MinUploadPartSize {
-		cfg.PartSize = s3manager.MinUploadPartSize
+	if cfg.PartSize < manager.MinUploadPartSize {
+		cfg.PartSize = manager.MinUploadPartSize
 	}
 
 	w := Wrapper{
-		uploader: s3manager.NewUploader(sess, func(u *s3manager.Uploader) {
+		uploader: manager.NewUploader(cli, func(u *manager.Uploader) {
 			u.PartSize = cfg.PartSize
 		}),
 		logger:     cfg.Logger,
@@ -137,7 +152,7 @@ func (wr Wrapper) Wrap(next http.Handler) http.Handler {
 
 		mr, err := req.MultipartReader()
 		if err != nil {
-			wr.logAndErr(w, fmt.Errorf("failed create multipart reader: %v", err))
+			wr.logAndErr(w, fmt.Errorf("failed create multipart reader: %w", err))
 			return
 		}
 
@@ -220,8 +235,8 @@ func (wr Wrapper) readFile(req *http.Request, part *multipart.Part) (file, error
 	}
 
 	counter := &bytesCounter{r: part}
-	_, err := wr.uploader.UploadWithContext(req.Context(), &s3manager.UploadInput{
-		ACL:    aws.String(wr.fileACL),
+	_, err := wr.uploader.Upload(req.Context(), &s3.PutObjectInput{
+		ACL:    types.ObjectCannedACL(wr.fileACL),
 		Key:    aws.String(f.key),
 		Body:   counter,
 		Bucket: aws.String(wr.bucket),
@@ -244,16 +259,15 @@ func (Wrapper) readString(p *multipart.Part) (string, error) {
 	return buf.String(), nil
 }
 
-func createBucket(cli *s3.S3, name, acl string) error {
-	_, err := cli.CreateBucket(&s3.CreateBucketInput{
+func createBucket(cli *s3.Client, name, acl string) error {
+	_, err := cli.CreateBucket(context.Background(), &s3.CreateBucketInput{
 		Bucket: aws.String(name),
-		ACL:    aws.String(acl),
+		ACL:    types.BucketCannedACL(acl),
 	})
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Code() == s3.ErrCodeBucketAlreadyOwnedByYou {
-				return nil
-			}
+		var aerr *types.BucketAlreadyOwnedByYou
+		if errors.As(err, &aerr) {
+			return nil
 		}
 		return fmt.Errorf("failed to create bucket %q: %w", name, err)
 	}

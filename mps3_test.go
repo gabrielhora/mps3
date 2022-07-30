@@ -2,6 +2,7 @@ package mps3
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -10,23 +11,17 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
 )
 
-var cfg = Config{
-	AccessKeyID:     "minioadmin",
-	SecretAccessKey: "minioadmin",
-	Endpoint:        minioHost(),
-	Region:          "minio",
-	Bucket:          "test",
-	CreateBucket:    true,
-}
+var cfg = s3Config()
+var s3cli = s3.NewFromConfig(*cfg)
 
-var s3cli *s3.S3
+const bucket = "test"
 
 func TestUploadFilesToS3(t *testing.T) {
 	assert := assert.New(t)
@@ -38,7 +33,11 @@ func TestUploadFilesToS3(t *testing.T) {
 	assert.NoError(err)
 	res := httptest.NewRecorder()
 
-	wrapper, err := New(cfg)
+	wrapper, err := New(Config{
+		S3Config:     cfg,
+		Bucket:       bucket,
+		CreateBucket: true,
+	})
 	assert.NoError(err)
 
 	h := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -103,28 +102,27 @@ func newRequest(fields map[string]string, files ...string) (*http.Request, error
 }
 
 func existInS3(name string) bool {
-	if s3cli == nil {
-		ses, _ := session.NewSession(&aws.Config{
-			Credentials:      credentials.NewStaticCredentials(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
-			Endpoint:         aws.String(cfg.Endpoint),
-			Region:           aws.String(cfg.Region),
-			S3ForcePathStyle: aws.Bool(true),
-		})
-		s3cli = s3.New(ses)
-	}
-
-	_, err := s3cli.HeadObject(&s3.HeadObjectInput{
-		Bucket: aws.String(cfg.Bucket),
+	_, err := s3cli.HeadObject(context.Background(), &s3.HeadObjectInput{
+		Bucket: aws.String(bucket),
 		Key:    aws.String(name),
 	})
 	return err == nil
 }
 
-func minioHost() string {
+func s3Config() *aws.Config {
 	host := os.Getenv("MINIO_HOST")
-	if host != "" {
-		return host
-	} else {
-		return "http://localhost:9000"
+	if host == "" {
+		host = "http://localhost:9000"
 	}
+	resolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+		return aws.Endpoint{
+			URL:               host,
+			SigningRegion:     "localhost",
+			HostnameImmutable: true,
+		}, nil
+	})
+	cfg, _ := config.LoadDefaultConfig(context.Background(),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("minioadmin", "minioadmin", "")),
+		config.WithEndpointResolverWithOptions(resolver))
+	return &cfg
 }
